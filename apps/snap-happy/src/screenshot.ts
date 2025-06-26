@@ -16,7 +16,7 @@ export interface ScreenshotConfig {
  */
 export interface WindowInfo {
 	id: number;
-	cgWindowID: number; // Core Graphics window ID for direct capture
+	cgWindowID: number; // Core Graphics window ID for direct capture (macOS) or X11 window ID (Linux)
 	title: string;
 	app: string;
 	position: { x: number; y: number };
@@ -59,9 +59,9 @@ export function takeScreenshot(screenshotPath: string, windowId?: number): strin
 
 	const currentPlatform = platform();
 
-	// Window-specific screenshots only supported on macOS
-	if (windowId && currentPlatform !== "darwin") {
-		throw new Error("Window-specific screenshots are only supported on macOS");
+	// Window-specific screenshots supported on macOS and Linux
+	if (windowId && currentPlatform !== "darwin" && currentPlatform !== "linux") {
+		throw new Error("Window-specific screenshots are only supported on macOS and Linux");
 	}
 
 	try {
@@ -94,11 +94,33 @@ export function takeScreenshot(screenshotPath: string, windowId?: number): strin
 				break;
 
 			case "linux":
-				// Try gnome-screenshot first, fall back to scrot
-				try {
-					execSync(`gnome-screenshot --file="${filepath}"`, { stdio: "pipe" });
-				} catch {
-					execSync(`scrot "${filepath}"`, { stdio: "pipe" });
+				if (windowId) {
+					// Find the window by ID and capture specific window
+					const windows = listWindows();
+					const targetWindow = windows.find((w) => w.id === windowId);
+
+					if (!targetWindow) {
+						throw new Error(`Window with ID ${windowId} not found`);
+					}
+
+					// Focus window first to ensure it's visible, then capture
+					try {
+						execSync(`xdotool windowactivate ${targetWindow.cgWindowID}`, { stdio: "pipe" });
+						// Small delay to ensure window is active
+						execSync(`sleep 0.1`, { stdio: "pipe" });
+						// Capture the specific window using ImageMagick
+						execSync(`import -window ${targetWindow.cgWindowID} "${filepath}"`, { stdio: "pipe" });
+					} catch {
+						// Fallback: try window capture without focus
+						execSync(`import -window ${targetWindow.cgWindowID} "${filepath}"`, { stdio: "pipe" });
+					}
+				} else {
+					// Full screen capture - try gnome-screenshot first, fall back to scrot
+					try {
+						execSync(`gnome-screenshot --file="${filepath}"`, { stdio: "pipe" });
+					} catch {
+						execSync(`scrot "${filepath}"`, { stdio: "pipe" });
+					}
 				}
 				break;
 
@@ -195,15 +217,29 @@ export function getScreenshotConfig(): ScreenshotConfig {
 }
 
 /**
- * Lists all visible windows on macOS using native utility
- * Returns window information including position and size for use with screencapture -R
+ * Lists all visible windows using platform-specific utilities
+ * macOS: Uses native Swift utility with Core Graphics APIs
+ * Linux: Uses wmctrl and xwininfo for X11 window enumeration
  * @returns Array of window information (id, title, app, position, size)
- * @throws Error if not on macOS or native utility fails
+ * @throws Error if platform not supported or utilities fail
  */
 export function listWindows(): WindowInfo[] {
-	if (platform() !== "darwin") {
-		throw new Error("Window listing is only supported on macOS");
+	const currentPlatform = platform();
+
+	if (currentPlatform === "darwin") {
+		return listWindowsMacOS();
+	} else if (currentPlatform === "linux") {
+		return listWindowsLinux();
+	} else {
+		throw new Error("Window listing is only supported on macOS and Linux");
 	}
+}
+
+/**
+ * Lists all visible windows on macOS using native utility
+ * @returns Array of window information
+ */
+function listWindowsMacOS(): WindowInfo[] {
 
 	try {
 		// Use the native Swift utility to get window information
@@ -241,6 +277,87 @@ export function listWindows(): WindowInfo[] {
 		}
 		throw new Error(
 			`Failed to list windows: ${error instanceof Error ? error.message : String(error)}. This may require granting Screen Recording permissions in System Preferences → Security & Privacy → Privacy → Screen Recording`,
+		);
+	}
+}
+
+/**
+ * Lists all visible windows on Linux using wmctrl and xwininfo
+ * @returns Array of window information
+ */
+function listWindowsLinux(): WindowInfo[] {
+	try {
+		// Get basic window list with wmctrl
+		const wmctrlOutput = execSync('wmctrl -l -G', {
+			encoding: 'utf8',
+			stdio: 'pipe',
+		});
+
+		if (!wmctrlOutput.trim()) {
+			throw new Error('No windows found');
+		}
+
+		const windows: WindowInfo[] = [];
+		const lines = wmctrlOutput.trim().split('\n');
+		let windowIdCounter = 1;
+
+		for (const line of lines) {
+			// wmctrl -l -G format: <window_id> <desktop> <x> <y> <width> <height> <client_machine> <window_title>
+			const parts = line.trim().split(/\s+/);
+			if (parts.length < 7) continue;
+
+			const windowId = parts[0];
+			const x = parseInt(parts[2]);
+			const y = parseInt(parts[3]);
+			const width = parseInt(parts[4]);
+			const height = parseInt(parts[5]);
+			const title = parts.slice(7).join(' '); // Everything after client machine
+
+			// Skip small windows (likely not user windows)
+			if (width < 50 || height < 50) continue;
+
+			// Skip desktop and panel windows
+			if (title.includes('Desktop') || title.includes('Panel') || title === '') continue;
+
+			// Get application name using xprop
+			let appName = 'Unknown';
+			try {
+				const xpropOutput = execSync(`xprop -id ${windowId} WM_CLASS`, {
+					encoding: 'utf8',
+					stdio: 'pipe',
+				});
+				// WM_CLASS format: WM_CLASS(STRING) = "instance", "class"
+				const classMatch = xpropOutput.match(/"([^"]+)",\s*"([^"]+)"/);
+				if (classMatch) {
+					appName = classMatch[2]; // Use the class name
+				}
+			} catch {
+				// If xprop fails, keep 'Unknown'
+			}
+
+			// Convert hex window ID to decimal for cgWindowID field
+			const cgWindowID = parseInt(windowId, 16);
+
+			const windowInfo: WindowInfo = {
+				id: windowIdCounter++,
+				cgWindowID: cgWindowID,
+				title: title,
+				app: appName,
+				position: { x, y },
+				size: { width, height },
+			};
+
+			windows.push(windowInfo);
+		}
+
+		if (windows.length === 0) {
+			throw new Error('No suitable windows found. Make sure you have visible application windows.');
+		}
+
+		return windows;
+	} catch (error) {
+		throw new Error(
+			`Failed to list windows on Linux: ${error instanceof Error ? error.message : String(error)}. Make sure wmctrl and xprop are installed.`,
 		);
 	}
 }

@@ -6,14 +6,17 @@ A Model Context Protocol (MCP) server that provides screenshot functionality for
 
 ## Features
 
-- **Cross-platform screenshot capture**: Works on macOS, Linux, and Windows (only tested on macOS. Works on my machine)
+- **Cross-platform screenshot capture**: Works on macOS, Linux, and Windows
 - **Three main tools**:
    - `GetLastScreenshot()`: Returns the most recent screenshot as base64 PNG
    - `TakeScreenshot()`: Takes a new screenshot and returns it as base64 PNG
       - **macOS**: Full screen or specific window capture (captures actual window content, ignoring overlapping windows)
-      - **Linux/Windows**: Full screen capture only
-   - `ListWindows()`: Lists all visible windows with IDs, titles, and application names (macOS only)
-- **Window-specific screenshots**: On macOS, capture individual windows without interference from overlapping content
+      - **Linux**: Full screen or specific window capture using ImageMagick
+      - **Windows**: Full screen capture only
+   - `ListWindows()`: Lists all visible windows with IDs, titles, and application names
+      - **macOS**: Uses Core Graphics APIs for precise window enumeration
+      - **Linux**: Uses wmctrl and xprop for X11 window management
+- **Window-specific screenshots**: Capture individual windows without interference from overlapping content (macOS and Linux)
 
 ## Installation
 
@@ -24,7 +27,7 @@ npm install -g @mariozechner/snap-happy
 ## Prerequisites
 
 - **macOS**: Built-in `screencapture` command and Swift compiler (Screen Recording permission required for window capture)
-- **Linux**: `gnome-screenshot` or `scrot` package
+- **Linux**: `gnome-screenshot` or `scrot`, `wmctrl`, `xdotool`, and `imagemagick` packages
 - **Windows**: PowerShell with .NET Framework
 
 ### Build Requirements
@@ -124,10 +127,10 @@ Grant permissions in System Preferences → Security & Privacy → Privacy → S
 
 ```bash
 # Ubuntu/Debian
-sudo apt install gnome-screenshot
+sudo apt install gnome-screenshot wmctrl xdotool imagemagick
 
 # Fedora/RHEL
-sudo dnf install gnome-screenshot
+sudo dnf install gnome-screenshot wmctrl xdotool ImageMagick
 ```
 
 ### Common Issues
@@ -135,8 +138,9 @@ sudo dnf install gnome-screenshot
 - **"Environment variable not set"**: Set `SNAP_HAPPY_SCREENSHOT_PATH`
 - **"Screenshot path is not writable"**: Check directory permissions
 - **"No screenshots found"**: Verify directory contains PNG files
-- **"Window-specific screenshots are only supported on macOS"**: Window capture with `windowId` parameter only works on macOS
+- **"Window-specific screenshots are only supported on macOS and Linux"**: Window capture with `windowId` parameter works on macOS and Linux only
 - **Native utility build errors**: Only relevant for development - end users get pre-built binaries. For development, ensure Swift compiler is available (`xcode-select --install`)
+- **"Failed to list windows on Linux"**: Ensure `wmctrl`, `xdotool`, and `imagemagick` are installed on your system
 
 ## License
 
