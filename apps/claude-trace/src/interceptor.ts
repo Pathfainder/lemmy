@@ -435,7 +435,24 @@ export class ClaudeTrafficLogger {
 		const shouldOpenBrowser = process.env.CLAUDE_TRACE_OPEN_BROWSER === "true";
 		if (shouldOpenBrowser && fs.existsSync(this.htmlFile)) {
 			try {
-				spawn("open", [this.htmlFile], { detached: true, stdio: "ignore" }).unref();
+				// Cross-platform browser opening
+				const platform = process.platform;
+				let command: string;
+				let args: string[];
+
+				if (platform === "darwin") {
+					command = "open";
+					args = [this.htmlFile];
+				} else if (platform === "win32") {
+					command = "cmd";
+					args = ["/c", "start", this.htmlFile];
+				} else {
+					// Linux and other Unix-like systems
+					command = "xdg-open";
+					args = [this.htmlFile];
+				}
+
+				spawn(command, args, { detached: true, stdio: "ignore" }).unref();
 				console.log(`🌐 Opening ${this.htmlFile} in browser`);
 			} catch (error) {
 				console.log(`❌ Failed to open browser: ${error}`);
