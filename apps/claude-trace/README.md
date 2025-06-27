@@ -83,6 +83,26 @@ This feature:
 - Node.js 16+
 - Claude Code CLI installed
 
+## Linux Installation Notes
+
+After installing globally with `npm install -g @mariozechner/claude-trace`, you need to build the frontend bundle:
+
+```bash
+# Navigate to your global installation
+cd ~/.npm-global/lib/node_modules/@mariozechner/claude-trace/frontend
+
+# Install frontend dependencies and build
+npm install
+npm run build
+
+# Copy built files to correct location (if needed)
+mkdir -p ../frontend/dist
+cp dist/* ../frontend/dist/
+cp template.html ../frontend/
+```
+
+This ensures HTML report generation works properly on Linux systems. The cross-platform browser opening (xdg-open for Linux, open for macOS, start for Windows) is already included.
+
 ## Development
 
 ### Running in dev mode
